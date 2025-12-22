@@ -166,6 +166,16 @@ export async function main() {
   await prisma.person.deleteMany();
   await prisma.expenseGroup.deleteMany();
 
+  // Create or get a default user for seed data
+  const defaultUser = await prisma.user.upsert({
+    where: { email: "seed@example.com" },
+    update: {},
+    create: {
+      email: "seed@example.com",
+      name: "Seed User",
+    },
+  });
+
   // Create groups with nested data
   for (const groupInput of groupData) {
     // Create group first
@@ -173,6 +183,7 @@ export async function main() {
       data: {
         title: groupInput.title,
         description: groupInput.description || null,
+        userId: defaultUser.id,
       },
     });
 

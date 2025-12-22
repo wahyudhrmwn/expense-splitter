@@ -34,6 +34,7 @@ Sebelum deploy, pastikan Anda sudah memiliki:
 Setup database PostgreSQL di provider pilihan Anda dan dapatkan connection string.
 
 **Format connection string:**
+
 ```
 postgresql://user:password@host:port/database?schema=public
 ```
@@ -61,6 +62,7 @@ postgresql://user:password@host:port/database?schema=public
 #### Opsi A: Deploy via Vercel Dashboard
 
 1. **Push code ke GitHub/GitLab/Bitbucket**
+
    ```bash
    git add .
    git commit -m "Prepare for deployment"
@@ -68,27 +70,29 @@ postgresql://user:password@host:port/database?schema=public
    ```
 
 2. **Import project ke Vercel**
+
    - Buka [vercel.com/new](https://vercel.com/new)
    - Pilih repository Anda
    - Klik **Import**
 
 3. **Konfigurasi Environment Variables**
-   
+
    Di halaman **Settings** → **Environment Variables**, tambahkan:
 
-   | Variable | Value | Environment |
-   |----------|-------|-------------|
-   | `DATABASE_URL` | Connection string dari database | Production, Preview, Development |
-   | `NEXTAUTH_URL` | `https://your-app.vercel.app` | Production |
-   | `NEXTAUTH_SECRET` | Generate secret (lihat di bawah) | Production, Preview, Development |
-   | `GOOGLE_CLIENT_ID` | Client ID dari Google Console | Production, Preview, Development |
+   | Variable               | Value                             | Environment                      |
+   | ---------------------- | --------------------------------- | -------------------------------- |
+   | `DATABASE_URL`         | Connection string dari database   | Production, Preview, Development |
+   | `NEXTAUTH_URL`         | `https://your-app.vercel.app`     | Production                       |
+   | `NEXTAUTH_SECRET`      | Generate secret (lihat di bawah)  | Production, Preview, Development |
+   | `GOOGLE_CLIENT_ID`     | Client ID dari Google Console     | Production, Preview, Development |
    | `GOOGLE_CLIENT_SECRET` | Client Secret dari Google Console | Production, Preview, Development |
 
    **Generate NEXTAUTH_SECRET:**
+
    ```bash
    # Linux/Mac
    openssl rand -base64 32
-   
+
    # Windows (PowerShell)
    [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
    ```
@@ -100,21 +104,25 @@ postgresql://user:password@host:port/database?schema=public
 #### Opsi B: Deploy via Vercel CLI
 
 1. **Install Vercel CLI**
+
    ```bash
    npm i -g vercel
    ```
 
 2. **Login ke Vercel**
+
    ```bash
    vercel login
    ```
 
 3. **Deploy**
+
    ```bash
    vercel
    ```
 
 4. **Set Environment Variables**
+
    ```bash
    vercel env add DATABASE_URL
    vercel env add NEXTAUTH_URL
@@ -191,6 +199,7 @@ npx prisma migrate deploy
 ### Environment Variables per Environment
 
 Vercel mendukung environment variables berbeda untuk:
+
 - **Production** - Untuk production deployment
 - **Preview** - Untuk preview deployments (pull requests)
 - **Development** - Untuk local development (via `vercel env pull`)
@@ -204,6 +213,7 @@ Pastikan semua environment variables di-set untuk semua environment yang diperlu
 ### Error: "DATABASE_URL environment variable is not set"
 
 **Solusi:**
+
 - Pastikan environment variable sudah di-set di Vercel dashboard
 - Pastikan variable di-set untuk environment yang benar (Production/Preview/Development)
 - Redeploy setelah menambah environment variable
@@ -211,6 +221,7 @@ Pastikan semua environment variables di-set untuk semua environment yang diperlu
 ### Error: "Prisma Client not generated"
 
 **Solusi:**
+
 - Pastikan `postinstall` script sudah ada di `package.json`
 - Check build logs di Vercel untuk melihat apakah `prisma generate` berhasil
 - Pastikan `prisma` ada di `devDependencies` (sudah benar)
@@ -218,6 +229,7 @@ Pastikan semua environment variables di-set untuk semua environment yang diperlu
 ### Error: "Migration failed"
 
 **Solusi:**
+
 - Pastikan `DATABASE_URL` benar dan database accessible
 - Pastikan database sudah dibuat
 - Jalankan `npx prisma migrate deploy` secara manual
@@ -225,6 +237,7 @@ Pastikan semua environment variables di-set untuk semua environment yang diperlu
 ### Error: "NextAuth callback error"
 
 **Solusi:**
+
 - Pastikan `NEXTAUTH_URL` sesuai dengan URL aplikasi di Vercel
 - Pastikan redirect URI di Google Console sesuai dengan `NEXTAUTH_URL`
 - Pastikan `NEXTAUTH_SECRET` sudah di-set
@@ -232,6 +245,7 @@ Pastikan semua environment variables di-set untuk semua environment yang diperlu
 ### Build Timeout
 
 **Solusi:**
+
 - Pastikan `vercel.json` sudah ada dan benar
 - Check apakah ada dependency yang terlalu besar
 - Pastikan build command tidak terlalu lama
@@ -263,6 +277,7 @@ Sebelum deploy, pastikan:
 Setelah melakukan perubahan:
 
 1. **Commit dan push perubahan**
+
    ```bash
    git add .
    git commit -m "Update: description"
@@ -272,20 +287,22 @@ Setelah melakukan perubahan:
 2. **Vercel akan otomatis deploy** (jika auto-deploy enabled)
 
 3. **Atau deploy manual**
+
    ```bash
    vercel --prod
    ```
 
 4. **Jika ada perubahan schema database:**
+
    ```bash
    # Buat migration baru
    npx prisma migrate dev --name your_migration_name
-   
+
    # Commit migration files
    git add prisma/migrations
    git commit -m "Add database migration"
    git push
-   
+
    # Setelah deploy, jalankan migration
    npx prisma migrate deploy
    ```
@@ -312,4 +329,3 @@ Setelah melakukan perubahan:
 ---
 
 **Selamat! Aplikasi Anda sudah siap di production! 🎉**
-
