@@ -30,8 +30,11 @@ export default function ExpenseSplitterPage() {
   const { data: session } = useSession();
   const router = useRouter();
   const {
-    groups,
+    groups: storeGroups,
     selectedGroup,
+    loading,
+    error,
+    fetchGroups,
     addGroup,
     updateGroup,
     deleteGroup,
@@ -44,6 +47,11 @@ export default function ExpenseSplitterPage() {
     calculateBalances,
     getSettlements,
   } = useExpenseSplitterStore();
+
+  // Fetch groups on mount
+  useEffect(() => {
+    fetchGroups();
+  }, [fetchGroups]);
 
   const handleLogout = async () => {
     await signOut({ redirect: false });
@@ -64,41 +72,56 @@ export default function ExpenseSplitterPage() {
     taxPercentage: 0, // User input sendiri
   });
 
-  // Get current group directly using getGroupById (called in render, not in selector)
+  // Get current group using getGroupById (stable reference)
   const currentGroup = selectedGroup ? getGroupById(selectedGroup) : null;
 
-  // Subscribe to groups length to trigger recalculation when groups change
-  const groupsLength = useExpenseSplitterStore((state) => state.groups.length);
-
   // Subscribe to expenses and people count for the selected group
+  // Use simple selectors that return primitive values to avoid infinite loop
   const expensesCount = useExpenseSplitterStore((state) => {
     if (!selectedGroup) return 0;
     const group = state.groups.find((g) => g.id === selectedGroup);
-    return group?.expenses?.length || 0;
+    return group?.expenses?.length ?? 0;
   });
 
   const peopleCount = useExpenseSplitterStore((state) => {
     if (!selectedGroup) return 0;
     const group = state.groups.find((g) => g.id === selectedGroup);
-    return group?.people?.length || 0;
+    return group?.people?.length ?? 0;
   });
 
-  // Calculate balances and settlements - will recalculate when counts change
-  const balances = useMemo(() => {
-    if (!currentGroup || !selectedGroup) return {};
-    return calculateBalances(selectedGroup);
-  }, [
-    expensesCount,
-    peopleCount,
-    groupsLength,
-    selectedGroup,
-    calculateBalances,
-  ]);
+  // Subscribe to groups length to detect when data changes
+  const groupsLength = useExpenseSplitterStore((state) => state.groups.length);
 
-  const settlements = useMemo(() => {
-    if (!currentGroup || !selectedGroup) return [];
-    return getSettlements(selectedGroup);
-  }, [expensesCount, peopleCount, groupsLength, selectedGroup, getSettlements]);
+  // Calculate balances and settlements - will recalculate when expenses or people change
+  // Use state to store calculated values and update via useEffect to avoid infinite loop
+  const [balances, setBalances] = useState<Record<string, number>>({});
+  const [settlements, setSettlements] = useState<
+    Array<{ from: string; to: string; amount: number }>
+  >([]);
+
+  // Recalculate balances and settlements when expenses or people change
+  useEffect(() => {
+    if (!selectedGroup) {
+      setBalances({});
+      setSettlements([]);
+      return;
+    }
+
+    const store = useExpenseSplitterStore.getState();
+    const group = store.getGroupById(selectedGroup);
+    if (!group) {
+      setBalances({});
+      setSettlements([]);
+      return;
+    }
+
+    const newBalances = store.calculateBalances(selectedGroup);
+    const newSettlements = store.getSettlements(selectedGroup);
+
+    setBalances(newBalances);
+    setSettlements(newSettlements);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expensesCount, peopleCount, groupsLength, selectedGroup]);
 
   // Reset expense form when group changes
   useEffect(() => {
@@ -113,28 +136,38 @@ export default function ExpenseSplitterPage() {
     }
   }, [selectedGroup]);
 
-  const handleAddGroup = (e: React.FormEvent) => {
+  const handleAddGroup = async (e: React.FormEvent) => {
     e.preventDefault();
-    addGroup({
-      ...formData,
-      people: [],
-      expenses: [],
-    });
-    setFormData({ title: "", description: "" });
-    setIsAdding(false);
-  };
-
-  const handleAddPerson = () => {
-    if (personName.trim() && currentGroup) {
-      addPerson(currentGroup.id, {
-        name: personName.trim(),
-        email: "",
+    try {
+      await addGroup({
+        ...formData,
+        people: [],
+        expenses: [],
       });
-      setPersonName("");
+      setFormData({ title: "", description: "" });
+      setIsAdding(false);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Gagal menambahkan group");
     }
   };
 
-  const handleAddExpense = (e: React.FormEvent) => {
+  const handleAddPerson = async () => {
+    if (personName.trim() && currentGroup) {
+      try {
+        await addPerson(currentGroup.id, {
+          name: personName.trim(),
+          email: "",
+        });
+        setPersonName("");
+      } catch (error) {
+        alert(
+          error instanceof Error ? error.message : "Gagal menambahkan orang"
+        );
+      }
+    }
+  };
+
+  const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!currentGroup) {
@@ -181,27 +214,64 @@ export default function ExpenseSplitterPage() {
       totalAmount = subtotal + taxAmount;
     }
 
-    addExpense(currentGroup.id, {
-      title: expenseData.title.trim(),
-      totalAmount: totalAmount,
-      paidBy: expenseData.paidBy,
-      items: expenseData.items.filter(
-        (item) => item.itemName.trim() && item.amount > 0
-      ),
-      includeTax: expenseData.includeTax,
-      taxPercentage: expenseData.includeTax ? expenseData.taxPercentage : 0,
-      category: "",
-      date: new Date(),
-      description: "",
-    });
+    // Validate all items before submitting
+    const validItems = expenseData.items.filter(
+      (item) =>
+        item.personId &&
+        item.personId.trim() !== "" &&
+        item.itemName.trim() &&
+        item.amount > 0
+    );
 
-    setExpenseData({
-      title: "",
-      paidBy: "",
-      items: [],
-      includeTax: false,
-      taxPercentage: 0,
-    });
+    if (validItems.length === 0) {
+      alert(
+        "Tambahkan minimal satu item yang valid (dengan orang, nama item, dan harga)"
+      );
+      return;
+    }
+
+    // Check if all personIds are valid
+    const invalidPersonIds = validItems.filter(
+      (item) => !currentGroup.people.some((p) => p.id === item.personId)
+    );
+
+    if (invalidPersonIds.length > 0) {
+      alert("Beberapa item memiliki orang yang tidak valid");
+      return;
+    }
+
+    try {
+      await addExpense(currentGroup.id, {
+        title: expenseData.title.trim(),
+        totalAmount: totalAmount,
+        paidBy: expenseData.paidBy,
+        items: validItems,
+        includeTax: expenseData.includeTax,
+        taxPercentage: expenseData.includeTax ? expenseData.taxPercentage : 0,
+        category: "",
+        date: new Date(),
+        description: "",
+      });
+
+      // Reset form
+      setExpenseData({
+        title: "",
+        paidBy: "",
+        items: [],
+        includeTax: false,
+        taxPercentage: 0,
+      });
+
+      // Refresh groups to show new expense
+      await fetchGroups();
+    } catch (error) {
+      console.error("Error adding expense:", error);
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Gagal menambahkan pengeluaran. Silakan coba lagi.";
+      alert(errorMessage);
+    }
   };
 
   const handleAddItem = (personId: string) => {
@@ -232,6 +302,48 @@ export default function ExpenseSplitterPage() {
       ...expenseData,
       items: expenseData.items.filter((_, i) => i !== index),
     });
+  };
+
+  const handleDeleteGroup = async (groupId: string) => {
+    if (confirm("Apakah Anda yakin ingin menghapus group ini?")) {
+      try {
+        await deleteGroup(groupId);
+        // Refresh groups setelah delete berhasil
+        await fetchGroups();
+      } catch (error) {
+        console.error("Error deleting group:", error);
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "Gagal menghapus group. Silakan coba lagi.";
+        alert(errorMessage);
+      }
+    }
+  };
+
+  const handleDeletePerson = async (groupId: string, personId: string) => {
+    if (confirm("Apakah Anda yakin ingin menghapus orang ini?")) {
+      try {
+        await deletePerson(groupId, personId);
+      } catch (error) {
+        alert(error instanceof Error ? error.message : "Gagal menghapus orang");
+      }
+    }
+  };
+
+  const handleDeleteExpense = async (groupId: string, expenseId: string) => {
+    if (confirm("Apakah Anda yakin ingin menghapus pengeluaran ini?")) {
+      try {
+        await deleteExpense(groupId, expenseId);
+        // Refresh groups setelah delete berhasil untuk memastikan data ter-update
+        await fetchGroups();
+      } catch (error) {
+        console.error("Error deleting expense:", error);
+        alert(
+          error instanceof Error ? error.message : "Gagal menghapus pengeluaran"
+        );
+      }
+    }
   };
 
   return (
@@ -324,7 +436,7 @@ export default function ExpenseSplitterPage() {
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-3 sm:gap-4 mb-4 sm:mb-6">
-          {groups.map((group) => (
+          {storeGroups.map((group) => (
             <Card
               key={group.id}
               className={
@@ -339,21 +451,27 @@ export default function ExpenseSplitterPage() {
                   </div>
                   <div className="flex gap-1">
                     <Button
+                      type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() =>
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setSelectedGroup(
                           selectedGroup === group.id ? null : group.id
-                        )
-                      }
+                        );
+                      }}
                       className="h-8 w-8 p-0"
                     >
                       <Edit className="h-4 w-4" />
                     </Button>
                     <Button
+                      type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => deleteGroup(group.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteGroup(group.id);
+                      }}
                       className="h-8 w-8 p-0 text-destructive"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -387,7 +505,9 @@ export default function ExpenseSplitterPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => deletePerson(currentGroup.id, person.id)}
+                      onClick={() =>
+                        handleDeletePerson(currentGroup.id, person.id)
+                      }
                       className="text-destructive"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -786,7 +906,7 @@ export default function ExpenseSplitterPage() {
                               variant="ghost"
                               size="sm"
                               onClick={() =>
-                                deleteExpense(currentGroup.id, expense.id)
+                                handleDeleteExpense(currentGroup.id, expense.id)
                               }
                               className="text-destructive shrink-0"
                             >
@@ -905,7 +1025,7 @@ export default function ExpenseSplitterPage() {
           </div>
         )}
 
-        {groups.length === 0 && (
+        {storeGroups.length === 0 && (
           <Card className="text-center py-12">
             <CardContent>
               <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />

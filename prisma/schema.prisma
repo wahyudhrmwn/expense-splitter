@@ -1,0 +1,82 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String        @id @default(uuid())
+  email         String        @unique
+  name          String
+  image         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  expenseGroups ExpenseGroup[]
+
+  @@map("users")
+}
+
+model ExpenseGroup {
+  id          String       @id @default(uuid())
+  title       String
+  description String?
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  people      Person[]
+  expenses    ExpenseItem[]
+
+  @@map("expense_groups")
+}
+
+model Person {
+  id            String        @id @default(uuid())
+  name          String
+  email         String?
+  expenseGroupId String
+  expenseGroup  ExpenseGroup  @relation(fields: [expenseGroupId], references: [id], onDelete: Cascade)
+  expenseItems  ExpenseItemPerson[]
+  paidByExpenses ExpenseItem[] @relation("PaidBy")
+
+  @@map("people")
+}
+
+model ExpenseItem {
+  id            String              @id @default(uuid())
+  title         String
+  totalAmount   Float
+  paidBy        String
+  paidByPerson  Person              @relation("PaidBy", fields: [paidBy], references: [id], onDelete: Cascade)
+  includeTax    Boolean             @default(false)
+  taxPercentage Float               @default(11.0)
+  category      String
+  date          DateTime            @default(now())
+  description   String?
+  expenseGroupId String
+  expenseGroup  ExpenseGroup        @relation(fields: [expenseGroupId], references: [id], onDelete: Cascade)
+  items         ExpenseItemPerson[]
+
+  @@map("expense_items")
+}
+
+model ExpenseItemPerson {
+  id            String       @id @default(uuid())
+  personId      String
+  person        Person       @relation(fields: [personId], references: [id], onDelete: Cascade)
+  expenseItemId String
+  expenseItem   ExpenseItem  @relation(fields: [expenseItemId], references: [id], onDelete: Cascade)
+  itemName      String
+  amount        Float
+
+  @@map("expense_item_people")
+}
